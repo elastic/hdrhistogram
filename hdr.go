@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"sync/atomic"
 )
 
 // A Bracket is a part of a cumulative distribution.
@@ -28,6 +29,10 @@ type Snapshot struct {
 // non-normally distributed data (like latency) with a high degree of accuracy
 // and a bounded degree of precision.
 type Histogram struct {
+	// These fields must be first, to align for atomics.
+	totalCount int64
+	counts     []int64
+
 	lowestTrackableValue        int64
 	highestTrackableValue       int64
 	unitMagnitude               int64
@@ -37,8 +42,6 @@ type Histogram struct {
 	subBucketMask               int64
 	subBucketCount              int32
 	bucketCount                 int32
-	totalCount                  int64
-	counts                      []int64
 }
 
 // New returns a new Histogram instance capable of tracking values in the given
@@ -198,6 +201,11 @@ func (h *Histogram) RecordValue(v int64) error {
 	return h.RecordValues(v, 1)
 }
 
+// RecordValueAtomic is equivalent to h.RecordValuesAtomic(v, 1).
+func (h *Histogram) RecordValueAtomic(v int64) error {
+	return h.RecordValuesAtomic(v, 1)
+}
+
 // RecordCorrectedValue records the given value, correcting for stalls in the
 // recording process. This only works for processes which are recording values
 // at an expected interval (e.g., doing jitter analysis). Processes which are
@@ -232,6 +240,24 @@ func (h *Histogram) RecordValues(v, n int64) error {
 	}
 	h.counts[idx] += n
 	h.totalCount += n
+
+	return nil
+}
+
+// RecordValuesAtomic records n occurrences of the given value, returning an
+// error if the value is out of range.
+//
+// The bucket count and total count are each independently updated, atomically
+// with respect to other calls to RecordValue(s)Atomic. RecordValuesAtomic is
+// unsafe for concurrent use with methods that read the histogram; read/write
+// access should be synchronised using a mutex.
+func (h *Histogram) RecordValuesAtomic(v, n int64) error {
+	idx := h.countsIndexFor(v)
+	if idx < 0 || len(h.counts) <= idx {
+		return fmt.Errorf("value %d is too large to be recorded", v)
+	}
+	atomic.AddInt64(&h.counts[idx], n)
+	atomic.AddInt64(&h.totalCount, n)
 
 	return nil
 }

@@ -296,6 +296,21 @@ func BenchmarkHistogramRecordValue(b *testing.B) {
 	}
 }
 
+func BenchmarkHistogramRecordValueAtomic(b *testing.B) {
+	h := hdrhistogram.New(1, 10000000, 3)
+	for i := 0; i < 1000000; i++ {
+		if err := h.RecordValue(int64(i)); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		h.RecordValueAtomic(100)
+	}
+}
+
 func BenchmarkNew(b *testing.B) {
 	b.ReportAllocs()
 
