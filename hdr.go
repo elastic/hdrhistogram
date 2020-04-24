@@ -37,7 +37,6 @@ type Histogram struct {
 	subBucketMask               int64
 	subBucketCount              int32
 	bucketCount                 int32
-	countsLen                   int32
 	totalCount                  int64
 	counts                      []int64
 }
@@ -90,8 +89,6 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 		subBucketMask:               subBucketMask,
 		subBucketCount:              subBucketCount,
 		bucketCount:                 bucketCount,
-		countsLen:                   countsLen,
-		totalCount:                  0,
 		counts:                      make([]int64, countsLen),
 	}
 }
@@ -102,7 +99,7 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 // N.B.: This does not take into account the overhead for slices, which are
 // small, constant, and specific to the compiler version.
 func (h *Histogram) ByteSize() int {
-	return 6*8 + 5*4 + len(h.counts)*8
+	return 6*8 + 4*4 + len(h.counts)*8
 }
 
 // Merge merges the data stored in the given histogram with the receiver,
@@ -230,7 +227,7 @@ func (h *Histogram) RecordCorrectedValue(v, expectedInterval int64) error {
 // the value is out of range.
 func (h *Histogram) RecordValues(v, n int64) error {
 	idx := h.countsIndexFor(v)
-	if idx < 0 || int(h.countsLen) <= idx {
+	if idx < 0 || len(h.counts) <= idx {
 		return fmt.Errorf("value %d is too large to be recorded", v)
 	}
 	h.counts[idx] += n
@@ -332,7 +329,6 @@ func (h *Histogram) Equals(other *Histogram) bool {
 		h.subBucketMask != other.subBucketMask,
 		h.subBucketCount != other.subBucketCount,
 		h.bucketCount != other.bucketCount,
-		h.countsLen != other.countsLen,
 		h.totalCount != other.totalCount:
 		return false
 	default:
@@ -362,8 +358,7 @@ func Import(s *Snapshot) *Histogram {
 	h := New(s.LowestTrackableValue, s.HighestTrackableValue, int(s.SignificantFigures))
 	h.counts = s.Counts
 	totalCount := int64(0)
-	for i := int32(0); i < h.countsLen; i++ {
-		countAtIndex := h.counts[i]
+	for _, countAtIndex := range h.counts {
 		if countAtIndex > 0 {
 			totalCount += countAtIndex
 		}
